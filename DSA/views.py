@@ -15,6 +15,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from .models import CustomUser, OTP
 import logging
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from datetime import datetime
 
@@ -165,25 +168,148 @@ class LoginView(APIView):
             return Response({"error": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
         print(f"User found: {user.username}")
 
+        # Check if the user is active
+        if not user.is_active:
+            return Response({"error": "Account is inactive. Please contact support."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Determine if the user is a superuser or normal user
+        is_superuser = user.is_staff and user.is_active
+
         # Check password
         if user.check_password(password):
             # Generate tokens only if the user exists and the password is correct
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
 
+            # Include `is_superuser` in the access token payload
             access_token_payload = refresh.access_token.payload
-            access_token_payload['is_superuser'] = user.is_superuser  # Add this line
-            
-            # Store tokens in the database (optional)
+            access_token_payload['is_superuser'] = is_superuser
+
+            # Optionally store tokens in the database
             user.refresh_token = str(refresh)  # Save refresh token
-            user.access_token = access_token  # Save access token (optional)
+            user.access_token = access_token  # Save access token
             user.save()
 
             return Response({
                 "refresh": str(refresh),
                 "access": access_token,
+                "is_superuser": is_superuser,  # Include `is_superuser` in the response
                 "message": "Login successful.",
-                
             }, status=status.HTTP_200_OK)
         else:
             return Response({"error": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+class UserProfileView(APIView):
+    """
+    API View to fetch and return user profile details.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user  # Get the current logged-in user
+        profile_data = {
+            "full_name": user.full_name,
+            "user_class": user.user_class,
+            "roll_no": user.roll_no,
+            "stream": user.stream,
+            "dob": user.dob,
+            "college_name": user.college_name,
+            "contact_number": user.contact_number,
+            "username": user.username,
+            "email": user.email,
+        }
+        return Response(profile_data)
+
+
+from django.http import JsonResponse
+from django.views import View
+from django.utils.dateparse import parse_date
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.models import User
+import json
+
+@method_decorator(csrf_exempt, name='dispatch')
+class UpdateUserProfileView(View):
+    def put(self, request):
+        print("Headers:", request.headers)
+
+        # Authenticate the user
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return JsonResponse({'error': 'Authorization token missing or invalid'}, status=401)
+
+        token = auth_header.split(' ')[1]
+        try:
+            validated_token = JWTAuthentication().get_validated_token(token)
+            user = JWTAuthentication().get_user(validated_token)
+        except Exception as e:
+            print("Authentication error:", e)
+            return JsonResponse({'error': 'Invalid token'}, status=401)
+
+        try:
+            data = json.loads(request.body)
+
+            # Update user fields
+            user.full_name = data.get('full_name', user.full_name)
+            user.user_class = data.get('user_class', user.user_class)
+            user.roll_no = data.get('roll_no', user.roll_no)
+            user.stream = data.get('stream', user.stream)
+            user.college_name = data.get('college_name', user.college_name)
+            user.contact_number = data.get('contact_number', user.contact_number)
+            user.bio = data.get('bio', user.bio)
+            user.links = data.get('links', user.links)
+
+            # Handle 'dob'
+            dob = data.get('dob')
+            if dob:
+                parsed_dob = parse_date(dob)
+                if not parsed_dob:
+                    return JsonResponse({'error': 'Invalid date format for dob.'}, status=400)
+                user.dob = parsed_dob
+
+            # Save changes
+            user.save()
+            return JsonResponse({'message': 'Profile updated successfully!'}, status=200)
+
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+        except Exception as e:
+            print("Error:", e)
+            return JsonResponse({'error': 'Internal server error', 'details': str(e)}, status=500)
+from django.http import JsonResponse
+from django.views import View
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from .models import UserProfile
+
+@method_decorator(csrf_exempt, name='dispatch')
+class FileUploadView(View):
+    def post(self, request):
+        try:
+            user_profile, created = UserProfile.objects.get_or_create(user=request.user)
+            file_type = request.POST.get('file_type')
+
+            if file_type == 'profile_photo':
+                user_profile.profile_photo = request.FILES['file']
+            elif file_type == 'header_background':
+                user_profile.header_background = request.FILES['file']
+            elif file_type == 'certificates':
+                user_profile.certificates = request.FILES['file']
+            else:
+                return JsonResponse({'error': 'Invalid file type'}, status=400)
+
+            user_profile.save()
+            return JsonResponse({'message': 'File uploaded successfully!', 'file_url': getattr(user_profile, file_type).url})
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+
+
+
