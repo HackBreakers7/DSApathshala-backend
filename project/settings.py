@@ -24,11 +24,26 @@ SECRET_KEY = 'django-insecure-b3lw%1)b!i3iov3-r4qhlcjdd$3#_c3hm+i^+2w1+9_5s&^kuv
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),  # Access token expiry time
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),  # Refresh token expiry time
+    'ROTATE_REFRESH_TOKENS': False,  # Set to True if you want refresh tokens to rotate
+    'BLACKLIST_AFTER_ROTATION': False,  # Set to True if you want the old refresh tokens to be blacklisted
+    'ALGORITHM': 'HS256',  # The encryption algorithm used for signing the token
+}
 
 ALLOWED_HOSTS = ['*']
 
-
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    'http://127.0.0.1:5501',  # Frontend URL
+]
 # Application definition
+# settings.py
+
+
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -59,6 +74,9 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ]
 }
 
 
@@ -83,8 +101,13 @@ CORS_ALLOWED_ORIGINS = [
   
 ]
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
-
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # React frontend URL
+]
 
 TEMPLATES = [
     {
@@ -100,6 +123,9 @@ TEMPLATES = [
             ],
         },
     },
+]
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
 ]
 
 WSGI_APPLICATION = 'project.wsgi.application'

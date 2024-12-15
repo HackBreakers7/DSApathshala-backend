@@ -5,44 +5,47 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 
 class CustomUser(AbstractUser):
-    # Full name (first name and last name can be used, or you can combine all names into one field)
+    # Full name
     full_name = models.CharField(max_length=255)
-
-    # Additional fields
-    user_class = models.CharField(max_length=50, blank=True, null=True)  # Optional field for class of the student
-    roll_no = models.CharField(max_length=20, blank=True, null=True, unique=True)
-    # Optional roll number
-    stream = models.CharField(max_length=100, blank=True, null=True)     # Optional stream
-    dob = models.DateField(blank=True, null=True)                        # Allow DOB to be optional
-    college_name = models.CharField(max_length=255, blank=True, null=True)  # Optional college name
+    
+    # Optional fields
+    user_class = models.CharField(max_length=50, blank=True, null=True)  
+    roll_no = models.CharField(max_length=20, unique=True, default='default_roll_no')
+    stream = models.CharField(max_length=100, blank=True, null=True)
+    dob = models.DateField(blank=True, null=True)
+    college_name = models.CharField(max_length=255, blank=True, null=True)
     contact_number = models.CharField(max_length=15, blank=True, null=True)
-    # Overriding the username and email fields from AbstractUser
+    bio = models.TextField(blank=True, null=True)
+    links = models.TextField(blank=True, null=True)
+    
+    # Email and username are already part of AbstractUser, but overriding for unique constraints
     username = models.CharField(max_length=150, unique=True)
     email = models.EmailField(unique=True)
-
-    # Override groups and user_permissions fields to resolve the conflict with related_name
+    
+    # Override groups and user_permissions to avoid conflicts
     groups = models.ManyToManyField(
         'auth.Group',
-        related_name='customuser_groups',  # Change the related name
+        related_name='customuser_groups',
+        blank=True
+    )
+    user_permissions = models.ManyToManyField(
+        'auth.Permission',
+        related_name='customuser_permissions',
         blank=True
     )
     
-    user_permissions = models.ManyToManyField(
-        'auth.Permission',
-        related_name='customuser_permissions',  # Change the related name
-        blank=True
-    )
     def clean(self):
         super().clean()
+        # Validate that contact number contains only digits
         if self.contact_number and not self.contact_number.isdigit():
             raise ValidationError("Contact number must contain only digits.")
-
 
     def __str__(self):
         return self.username
 
+
 class OTP(models.Model):
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    user = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
     otp_code = models.CharField(max_length=6)
     otp_verified = models.BooleanField(default=False)  # Changed for clarity
     created_at = models.DateTimeField(auto_now_add=True)
@@ -61,3 +64,34 @@ class OTP(models.Model):
 
     def __str__(self):
         return f"OTP for {self.user.username} (Code: {self.otp_code})"
+class UserProfile(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
+    header_background = models.ImageField(upload_to='header_backgrounds/', blank=True, null=True)
+    certificates = models.FileField(upload_to='certificates/', blank=True, null=True)
+class StudentResult(models.Model):
+    roll_no = models.CharField(max_length=20, unique=True)
+    name = models.CharField(max_length=100)
+    performance = models.DecimalField(max_digits=5, decimal_places=2)  # Score out of 4
+    mcqs = models.DecimalField(max_digits=5, decimal_places=2)  # Score out of 4
+    attendance = models.DecimalField(max_digits=5, decimal_places=2)  # Score out of 2
+    practical_no = models.PositiveIntegerField(default=0)  # Temporary default
+     # Number of practicals attended
+    batch = models.CharField(
+        max_length=10,
+        choices=[('A', 'Batch A'), ('B', 'Batch B'), ('C', 'Batch C')],
+        default='A',
+    )
+
+    @property
+    def total(self):
+        """
+        Calculate the total score out of 10:
+        - Performance: max 4
+        - MCQs: max 4
+        - Attendance: max 2
+        """
+        return round(self.performance + self.mcqs + self.attendance, 2)
+
+    def __str__(self):
+        return f"{self.roll_no} - {self.name}"
